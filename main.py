@@ -8,41 +8,55 @@ import pandas as pd
 import cv2
 import numpy as np
 from skimage import  filters
-# folder_path = './astral_microtubules/'
-folder_path = './images2/'
+folder_path = './astral_microtubules/'
+# folder_path = './astral_microtubules_2/'
+# folder_path = './images2/'
 image_extensions = ('.tif', '.png', '.jpg', '.jpeg', '.bmp')
 
 image_names = [folder_path+filename for filename in os.listdir(folder_path) if filename.lower().endswith(image_extensions)]
 image_names= natsort.natsorted(image_names)
 
-def main(image_paths,save_name):
+def main(image_paths,):
     area_list = []
-
-    first_frame = True
+    threshold_list = []
     fixed_threshold = 0
+    mean_increment = (0.8) / (len(image_paths)*2) # Set the mean increment so that the threshold reaches about 0.5 after 150 images
+    std_dev = 0.01  # Adjust this value to control the spread of the normal distribution
 
     for image_path in image_paths:
         image_gray = load_image(image_path)
 
-        if first_frame:
-            fixed_threshold = filters.threshold_otsu(image_gray)*1.15
-            first_frame = False
-        else:
-            current_threshold = filters.threshold_otsu(image_gray)
-            if current_threshold > fixed_threshold:
-                fixed_threshold = current_threshold
+        current_threshold = filters.threshold_otsu(image_gray)
+        print(current_threshold)
 
-        binary_image = image_gray > fixed_threshold
-        denoised_image = denoise_image(binary_image)
-        cv2.imwrite(f"./output/{os.path.basename(image_path)}", (denoised_image.astype(np.uint8) * 255))
-        centre_area, total_area = measure_area(binary_image)
-        area_list.append(centre_area)
+        # Update threshold using a normal distribution
+        increment = np.random.normal(loc=mean_increment, scale=std_dev)
+        fixed_threshold += increment
+        fixed_threshold = min(fixed_threshold, 1)  # Limit the maximum threshold to 1
 
-    df = pd.DataFrame(area_list)
-    df.columns = ['area']
-    df.to_csv(f"./{save_name}.csv")
-    # Create a line plot
-    plt.plot(area_list)
+
+        # Define the contrast adjustment value (values greater than 1 increase contrast, values between 0 and 1 decrease contrast)
+        contrast_adjustment =2
+        # Define the brightness adjustment value (positive value to increase brightness, negative value to decrease)
+        brightness_adjustment = 0.45
+
+        # Adjust the contrast and brightness of the image
+        adjusted_image = image_gray* contrast_adjustment - brightness_adjustment
+        threshold_list.append(fixed_threshold)
+
+        adjusted_image = adjusted_image * (adjusted_image > fixed_threshold)
+        # Clip the pixel values to the valid range (0-1)
+        adjusted_image = np.clip(adjusted_image, 0, 1)
+        binary_image = np.ones_like(adjusted_image) * (adjusted_image != 0)
+        cv2.imwrite(f"./binary_output/{os.path.basename(image_path)}", (binary_image * 255).astype(np.uint8))
+        # binary_image = adjusted_image > fixed_threshold
+        # denoised_image = denoise_image(binary_image)
+
+        cv2.imwrite(f"./overly_output/{os.path.basename(image_path)}", (adjusted_image * 255).astype(np.uint8))
+        # total_area = measure_area(binary_image)
+        # area_list.append(total_area)
+
+    plt.plot(threshold_list)
     # Add labels and title (optional)
     plt.xlabel('times')
     plt.ylabel('area')
@@ -57,4 +71,4 @@ def main(image_paths,save_name):
 
 
 if __name__=="__main__":
-    main(image_names,save_name='test_01')
+    main(image_names)
